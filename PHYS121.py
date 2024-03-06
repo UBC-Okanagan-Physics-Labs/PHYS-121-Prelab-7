@@ -7,6 +7,7 @@ Created on Tue May 24 21:19:19 2022
 
 # Import some required modules.
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import random
 import os
@@ -15,6 +16,9 @@ from matplotlib.pyplot import cm # used to generate a sequence of colours for pl
 from scipy.optimize import curve_fit
 from IPython.display import HTML as html_print
 from IPython.display import display, Markdown, Latex
+from datetime import datetime, timedelta
+import sympy as sym
+import inspect
 
 ###############################################################################
 # Import a set of modules                                                     #
@@ -98,7 +102,7 @@ def Installer():
         spec = importlib.util.find_spec(name)
         if spec is None:
             display(html_print(cstr('Installing some packages ...\n', color = 'red')))
-            display(html_print(cstr("After the installation completes, please restart the kernel and then run the 'PHYS121.Installer()' function again before proceeding.\n", color = 'red')))
+            display(html_print(cstr("After the installation completes, please run the 'PHYS121.Installer()' function again before proceeding.\n", color = 'red')))
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--user', name])
             cnt += 1
 
@@ -107,7 +111,7 @@ def Installer():
         importlib.import_module('otter')
     except ImportError:
         display(html_print(cstr('Installing some packages ...\n', color = 'red')))
-        display(html_print(cstr("After the installation completes, please restart the kernel and then run the 'PHYS121.Installer()' function again before proceeding.\n", color = 'red')))
+        display(html_print(cstr("After the installation completes, please run the 'PHYS121.Installer()' function again before proceeding.\n", color = 'red')))
         import pip
         pip.main(['install', 'otter-grader'])
         cnt += 1
@@ -117,7 +121,7 @@ def Installer():
     if cnt == 0:
         display(html_print(cstr('All packages already installed. Please proceed.', color = 'black')))
     else:
-        display(html_print(cstr("\n Some packages were installed.  Please restart the kernel and then run the 'PHYS121.Installer()' function again before proceeding.", color = 'red')))
+        display(html_print(cstr("\n Some packages were installed.  Please run the 'PHYS121.Installer()' function again before proceeding.", color = 'red')))
         
 
 ###############################################################################
@@ -281,7 +285,7 @@ def MultiScatter(DataArray, xlabel = 'x-axis', ylabel = 'y-axis', xUnits = '', y
             if len(DataArray[i]) != 2 and len(DataArray[i]) != 3:
                 display(html_print(cstr("The elements of 'DataArray' must be lists of length 2 or 3.  Element " + str(i + 1) + ' does not satisfy this requirement.', color = 'magenta')))
                 return fig
-            elif all(isinstance(x, list) or type(x).__module__ == np.__name__ for x in DataArray[i]) != True: # Is dataArray a list of lists or arrays?
+            elif all(isinstance(x, (list, pd.core.series.Series)) or type(x).__module__ == np.__name__ for x in DataArray[i]) != True: # Is dataArray a list of lists or arrays
                 display(html_print(cstr("The elements of 'DataArray' must be a list of lists.  Element " +  str(i + 1) + ' does not satisfy this requirement.', color = 'magenta')))
                 return fig
             elif len(DataArray[i]) == 2:
@@ -298,7 +302,7 @@ def MultiScatter(DataArray, xlabel = 'x-axis', ylabel = 'y-axis', xUnits = '', y
             if type(DataArray[i]).__module__ == np.__name__:
                 DataArray[i] = DataArray[i].tolist()
             for j in range(len(DataArray[i])):
-                if type(DataArray[i][j]).__module__ == np.__name__:
+                if type(DataArray[i][j]).__module__ == np.__name__ or isinstance(DataArray[i][j], pd.core.series.Series):
                     DataArray[i][j] = DataArray[i][j].tolist()
         # Convert DataArray to a single master list
         masterList = sum(sum(DataArray,[]),[])
@@ -698,7 +702,141 @@ def Charging(xData, yData, yErrors = [], xlabel = 'x-axis', ylabel = 'y-axis', x
         # Show the final plot.
         plt.show()
     return A_fit, tau_fit, errA, errTau, fig
-    
+
+###############################################################################
+# Weighted & Unweighted Sine                                                  #
+# - modified 20230320                                                         #
+############################################################################### 
+# Start the 'Sine' function.
+def Sine(xData, yData, yErrors = [], xlabel = 'x-axis', ylabel = 'y-axis', xUnits = '', yUnits = ''):
+    # Check to see if the elements of dataArray are numpy arrays.  If they are, convert to lists
+    Coeff = ''
+    Power = ''
+    Offset = ''
+    errCoeff = ''
+    errPower = ''
+    errOffset = ''
+    fig = ''
+    if  type(xData).__module__ == np.__name__:
+        xData = xData.tolist()
+    if  type(yData).__module__ == np.__name__:
+        yData = yData.tolist()
+    if  type(yErrors).__module__ == np.__name__:
+        yErrors = yErrors.tolist()
+    # Check that the lengths of the inputs are all the same.  Check that the other inputs are strings.
+    if len(xData) != len(yData):
+        display(html_print(cstr('The length of xData (' + str(len(xData)) + ') is not equal to the length of yData (' + str(len(yData)) + ').', color = 'magenta')))
+    elif len(yErrors) != 0 and len(xData) != len(yErrors):  
+        display(html_print(cstr('The length of xData (' + str(len(xData)) + ') is not equal to the length of yErrors (' + str(len(yErrors)) + ').', color = 'magenta')))
+    elif len(yErrors) != 0 and len(yData) != len(yErrors):  
+        display(html_print(cstr('The length of yData (' + str(len(yData)) + ') is not equal to the length of yErrors (' + str(len(yErrors)) + ').', color = 'magenta')))
+    elif all(isinstance(x, (int, float)) for x in xData) != True:
+        display(html_print(cstr("The elements of 'xData' must be integers or floats.", color = 'magenta')))
+    elif all(isinstance(x, (int, float)) for x in yData) != True:
+        display(html_print(cstr("The elements of 'yData' must be integers or floats.", color = 'magenta')))
+    elif len(yErrors) != 0 and all(isinstance(x, (int, float)) for x in yErrors) != True:
+        display(html_print(cstr("The elements of 'yErrors' must be integers or floats.", color = 'magenta')))
+    elif isinstance(xlabel, str) == False:
+        display(html_print(cstr("'xlabel' must be a string.", color = 'magenta')))
+    elif isinstance(ylabel, str) == False:
+        display(html_print(cstr("'ylabel' must be a string.", color = 'magenta')))
+    elif isinstance(xUnits, str) == False:
+        display(html_print(cstr("'xUnits' must be a string.", color = 'magenta')))
+    elif isinstance(yUnits, str) == False:
+        display(html_print(cstr("'yUnits' must be a string.", color = 'magenta')))
+    else:
+        # Uncertainties is a nice package that can be used to properly round
+        # a numerical value based on its associated uncertainty.
+        install_and_import('uncertainties') # check to see if uncertainties is installed.  If it isn't attempt to do the install
+        import uncertainties
+
+        # Define the linear function used for the fit.
+        def SineFcn(x, coeff, period, phase):
+            y = coeff*np.sin(2*np.pi/period*x + phase)
+            return y
+        
+        # Find the minimum y value.  Will scale yData by the minimum value of y so that the nonlinear fit doesn't fail or require good initial guesses at the parameter values.
+        ymax = np.max(yData)
+        T_Est = 1.41 #  period in s.
+
+        start = (ymax, T_Est, 0)
+
+
+        # If the yErrors list is empty, do an unweighted fit.  Otherwise, do a weighted fit.
+        print('')
+        if xUnits == '':
+            display(Markdown('$y = A\,\sin(2\pi/T x + \phi)$'))
+        else:
+            display(Markdown('$y = A\,\sin(2\pi/T x + \phi)$'))
+        if len(yErrors) == 0: 
+            a_fit, cov = curve_fit(SineFcn, xData, yData, p0 = start)
+            display(Markdown('This is an **UNWEIGHTED** fit.'))
+        else:
+            a_fit, cov = curve_fit(SineFcn, xData, yData, sigma = yErrors, p0 = start)
+            display(Markdown('This is a **WEIGHTED** fit.'))
+
+        coeff = a_fit[0]
+        errCoeff = np.sqrt(np.diag(cov))[0]
+        period = a_fit[1]
+        errPeriod = np.sqrt(np.diag(cov))[1]
+        phase = a_fit[2]
+        errPhase = np.sqrt(np.diag(cov))[2]
+
+        # Use the 'uncertainties' package to format the best-fit parameters and the corresponding uncertainties.
+        A = uncertainties.ufloat(coeff, errCoeff)
+        T = uncertainties.ufloat(period, errPeriod)
+        phi = uncertainties.ufloat(phase, errPhase)
+
+        # Make a formatted table that reports the best-fit parameters and their uncertainties        
+        import pandas as pd
+        if xUnits != '' and yUnits != '':
+#            my_dict = {'coefficient' :{'':'$A =$', 'Value': '{:0.2ug}'.format(A), 'Units': yUnits + '/' + xUnits + eval(r'"\u00b' + str(Power) + '"')},
+#                       'period':{'':'$T =$', 'Value': '{:0.2ug}'.format(T), 'Units': xUnits},
+#                       'phase':{'':'$\phi =$', 'Value': '{:0.2ug}'.format(phi), 'Units': 'rad'}}
+            my_dict = {'coefficient' :{'':'$A =$', 'Value': '{:0.2ug}'.format(A), 'Units': yUnits},
+                       'period':{'':'$T =$', 'Value': '{:0.2ug}'.format(T), 'Units': xUnits},
+                       'phase':{'':'$\phi =$', 'Value': '{:0.2ug}'.format(phi), 'Units': 'rad'}}
+        elif xUnits != '' and yUnits == '':
+            my_dict = {'coefficient' :{'':'$A =$', 'Value': '{:0.2ug}'.format(A), 'Units': yUnits},
+                       'period':{'':'$T =$', 'Value': '{:0.2ug}'.format(T), 'Units': xUnits},
+                       'phase':{'':'$\phi =$', 'Value': '{:0.2ug}'.format(phi), 'Units': 'rad'}}           
+        elif xUnits == '' and yUnits != '':
+            my_dict = {'coefficient' :{'':'$A =$', 'Value': '{:0.2ug}'.format(A), 'Units': yUnits},
+                       'period':{'':'$T =$', 'Value': '{:0.2ug}'.format(T), 'Units': xUnits},
+                       'phase':{'':'$\phi =$', 'Value': '{:0.2ug}'.format(phi), 'Units': 'rad'}} 
+        else:
+            my_dict = {'coefficient' :{'':'$A =$', 'Value': '{:0.2ug}'.format(A)},
+                       'period':{'':'$T =$', 'Value': '{:0.2ug}'.format(T)},
+                       'phase':{'':'$\phi =$', 'Value': '{:0.2ug}'.format(phi)}} 
+
+        # Display the table
+        df = pd.DataFrame(my_dict)
+        display(df.transpose())
+        
+        # Generate the best-fit line. 
+        #fitFcn = np.polynomial.Polynomial(a_fit)
+        
+        # Call the Scatter function to create a scatter plot.
+        fig = Scatter(xData, yData, yErrors, xlabel, ylabel, xUnits, yUnits, False, False)
+        
+        # Determine the x-range.  Used to determine the x-values needed to produce the best-fit line.
+        if np.min(xData) > 0:
+            xmin = 0.9*np.min(xData)
+        else:
+            xmin = 1.1*np.min(xData)
+        if np.max(xData) > 0:
+            xmax = 1.1*np.max(xData)
+        else:
+            xmax = 0.9*np.max(xData)
+
+        # Plot the best-fit line...
+        xx = np.arange(xmin, xmax, (xmax-xmin)/5000)
+        plt.plot(xx, coeff*np.sin(2*np.pi/period*xx + phase), 'k-')
+
+        # Show the final plot.
+        plt.show()
+    return coeff, period, phase, errCoeff, errPeriod, errPhase, fig
+
 
 ###############################################################################
 # Magnetic Braking Nonlinear Fits                                             #
@@ -1314,7 +1452,13 @@ def printDigits():
     numDigits = random.randint(25, 35)
     
     # Now we generate a list of random integers numDigits long
-    digits = list(np.random.randint(1, 9, numDigits))
+    test = False
+    while test == False:
+        digits = list(np.random.randint(1, 10, numDigits))
+        seen = set()
+        duplicates = list(set(x for x in digits if x in seen or seen.add(x)))
+        if 9 in digits or (3 in digits and 6 in digits) or 3 in duplicates or 6 in duplicates:
+            test = True
     
     # Next, we take their product
     product = 1
@@ -1365,3 +1509,129 @@ def extension(file_names_in, new_ext):
 def get_hash(num):
     """Helper function for assessing correctness"""
     return hashlib.md5(str(num).encode()).hexdigest()
+
+###############################################################################
+# Hash student answers so that the Otter-Grader grader.check() output         #
+# doesn't reveal the correct answer                                           #
+# - modified 20240221                                                         #
+###############################################################################       
+def hasher(num):
+    if num == 'a':
+        hashcode = '0cc175b9c0f1b6a831c399e269772661'
+    elif num == 'b':
+        hashcode = '92eb5ffee6ae2fec3ad71c777531578f'
+    elif num == 'c':
+        hashcode = '4a8a08f09d37b73795649038408b5f33'
+    elif num == 'd':
+        hashcode = '8277e0910d750195b448797616e091ad'
+    elif num == 'e':
+        hashcode = 'e1671797c52e15f763380b45e841ec32'
+    elif num == 'f':
+        hashcode = '8fa14cdd754f91cc6554c9e71929cce7'
+    elif num == 'g':
+        hashcode = 'b2f5ff47436671b6e533d8dc3614845d'
+    elif num == 'h':
+        hashcode = '2510c39011c5be704182423e3a695e91'
+    elif num == 'i':
+        hashcode = '865c0c0b4ab0e063e5caa3387c1a8741'
+    elif num == 'j':
+        hashcode = '363b122c528f54df4a0446b6bab05515'
+    elif num == 'k':
+        hashcode = '8ce4b16b22b58894aa86c421e8759df3'
+    elif num == 'l':
+        hashcode = '2db95e8e1a9267b7a1188556b2013b33'
+    elif num == 'm':
+        hashcode = '6f8f57715090da2632453988d9a1501b'
+    elif num == 'n':
+        hashcode = '7b8b965ad4bca0e41ab51de7b31363a1'
+    elif num == 'o':
+        hashcode = 'd95679752134a2d9eb61dbd7b91c4bcc'
+    elif num == 'p':
+        hashcode = '83878c91171338902e0fe0fb97a8c47a'
+    elif num == 'q':
+        hashcode = '7694f4a66316e53c8cdd9d9954bd611d'
+    elif num == 'r':
+        hashcode = '4b43b0aee35624cd95b910189b3dc231'
+    elif num == 's':
+        hashcode = '03c7c0ace395d80182db07ae2c30f034'
+    elif num == 't':
+        hashcode = 'e358efa489f58062f10dd7316b65649e'
+    elif num == 'u':
+        hashcode = '7b774effe4a349c6dd82ad4f4f21d34c'
+    elif num == 'v':
+        hashcode = '9e3669d19b675bd57058fd4664205d2a'
+    elif num == 'w':
+        hashcode = 'f1290186a5d0b1ceab27f4e77c0c5d68'
+    elif num == 'x':
+        hashcode = '9dd4e461268c8034f5c8564e155c67a6'
+    elif num == 'y':
+        hashcode = '415290769594460e2e485922904f345d'
+    elif num == 'z':
+        hashcode = 'fbade9e36a3f36d3d676c1b808451dd7'
+    return hashcode
+
+
+###############################################################################
+# Log student entries to auto-graded questions                                #
+# - modified 20240120                                                         #
+###############################################################################       
+def dataLogger(questionStr, x, varNames, log):
+    if os.path.isfile('PHYS121_DataLogger.txt') == False:
+        with open('PHYS121_DataLogger.txt', 'a+') as f:
+            f.write('Date' + '\t' + 'Time' + '\t' + 'Question' + '\t' + 'Variable Name' + '\t' + 'Response' + '\t' + 'Type' + '\t' + 'Result' + '\n')
+    now = datetime.now()
+    corr = now - timedelta(hours = 8)
+
+    testString = log.lower().replace('\n','').replace(' ', '').replace('name_and_student_number_1', '')
+    results = []
+    for k in x:
+        results = results + ['passed']
+    if 'failed' in testString: 
+        splitList = testString.split('failed')
+        for j in range(len(varNames)):
+            for i in range(1, len(splitList), 2):
+                if varNames[j] in splitList[i]:
+                    results[j] = 'failed'
+    cnt = 0
+    for xi in x:
+        with open('PHYS121_DataLogger.txt', 'a+') as f:
+            if isinstance(xi, sym.Expr):
+                objectType = 'symbolic'
+            elif isinstance(xi, str):
+                objectType = 'string'
+            elif isinstance(xi, int):
+                objectType = 'integer'
+            elif isinstance(xi, float):
+                objectType = 'float'
+            elif isinstance(xi, complex):
+                objectType = 'complex'
+            elif isinstance(xi, list):
+                objectType = 'list'
+            elif isinstance(xi, np.ndarray):
+                objectType = 'numpy array'
+            elif isinstance(xi, sym.Expr):
+                objectType = 'sympy expression'
+            elif isinstance(xi, pd.DataFrame):
+                objectType = 'pandas dataframe'
+            elif isinstance(xi, tuple):
+                objectType = 'tuple'
+            elif isinstance(xi, set):
+                objectType = 'set'
+            elif isinstance(xi, np.ndarray) == False and isinstance(xi, list) == False and isinstance(xi, pd.DataFrame) == False and isinstance(xi, tuple) == False and isinstance(xi, set) == False and xi == ...:
+                objectType = 'ellipsis'
+            else:
+                objectType = 'unknown'
+            
+            dt_string = corr.strftime("%d/%m/%Y" + '\t' + "%H:%M:%S")
+            f.write(dt_string + '\t' + questionStr + '\t' + varNames[cnt] + '\t' + str(xi).replace('\n','') + '\t' + objectType + '\t' + results[cnt] + '\n')
+            cnt += 1
+    return
+
+###############################################################################
+# Log student entries to auto-graded questions                                #
+# - modified 20240120                                                         #
+###############################################################################       
+def graderCheck(x, varNames, check):
+    questionStr = str(check).split(' results')[0] # Get a string of the question name.
+    dataLogger(questionStr, x, varNames, str(check))
+    return check
